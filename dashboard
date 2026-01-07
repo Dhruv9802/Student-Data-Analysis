@@ -1,0 +1,526 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+import plotly.express as px
+from PIL import Image
+import os
+import sqlite3
+from datetime import datetime
+
+from database import Database
+from employee import Employee
+
+# Set page configuration
+st.set_page_config(
+    page_title="Employee Management System",
+    page_icon="👥",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Initialize database
+db = Database()
+
+# Custom CSS
+def load_css():
+    st.markdown("""
+    <style>
+        .main {
+            background-color: #f5f7f9;
+        }
+        .stApp {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .dashboard-title {
+            color: #2c3e50;
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 2px solid #3498db;
+        }
+        .card {
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .metric-card {
+            background-color: #3498db;
+            color: white;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .metric-value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+        .metric-label {
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        .form-container {
+            background-color: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .success-message {
+            background-color: #d4edda;
+            color: #155724;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        .error-message {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+load_css()
+
+# Create sidebar navigation
+def sidebar():
+    with st.sidebar:
+        st.image("assets/logo.svg", width=200)
+        st.title("Navigation")
+        
+        selected = st.radio(
+            "Go to",
+            options=["Dashboard", "Employees", "Add Employee", "Update Employee", "Reports"]
+        )
+        
+        st.sidebar.markdown("---")
+        st.sidebar.info("Employee Management System v1.0")
+        
+        return selected
+
+# Dashboard page
+def dashboard():
+    st.markdown("<h1 class='dashboard-title'>Employee Management Dashboard</h1>", unsafe_allow_html=True)
+    
+    # Get metrics
+    total_employees = db.get_employee_count()
+    departments = db.get_departments()
+    avg_salary = db.get_average_salary()
+    
+    # Display metrics in columns
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown(f"""
+        <div class='metric-card'>
+            <div class='metric-value'>{total_employees}</div>
+            <div class='metric-label'>Total Employees</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class='metric-card'>
+            <div class='metric-value'>{len(departments)}</div>
+            <div class='metric-label'>Departments</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+        <div class='metric-card'>
+            <div class='metric-value'>${avg_salary:,.2f}</div>
+            <div class='metric-label'>Average Salary</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Department distribution chart
+    st.markdown("<div class='card'><h3>Department Distribution</h3>", unsafe_allow_html=True)
+    dept_data = db.get_department_distribution()
+    if dept_data:
+        df_dept = pd.DataFrame(dept_data, columns=['Department', 'Count'])
+        fig = px.pie(df_dept, values='Count', names='Department', hole=0.4)
+        fig.update_layout(height=400)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No department data available yet.")
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Salary distribution chart
+    st.markdown("<div class='card'><h3>Salary Distribution</h3>", unsafe_allow_html=True)
+    salary_data = db.get_salary_data()
+    if salary_data:
+        df_salary = pd.DataFrame(salary_data, columns=['Name', 'Salary', 'Department'])
+        fig = px.bar(df_salary, x='Name', y='Salary', color='Department')
+        fig.update_layout(height=400)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No salary data available yet.")
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Recent employees
+    st.markdown("<div class='card'><h3>Recently Added Employees</h3>", unsafe_allow_html=True)
+    recent_employees = db.get_recent_employees(5)
+    if recent_employees:
+        df_recent = pd.DataFrame(recent_employees, columns=['ID', 'Name', 'Email', 'Department', 'Position', 'Join_Date'])
+        st.dataframe(df_recent, use_container_width=True)
+    else:
+        st.info("No employees added yet.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# Employees page
+def employees_page():
+    st.markdown("<h1 class='dashboard-title'>Employee Directory</h1>", unsafe_allow_html=True)
+    
+    # Search and filter options
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        search_term = st.text_input("Search by name or email")
+    
+    with col2:
+        departments = db.get_departments()
+        dept_filter = st.selectbox("Filter by department", ["All"] + departments)
+    
+    # Get employees based on filters
+    if dept_filter == "All":
+        employees = db.search_employees(search_term)
+    else:
+        employees = db.search_employees(search_term, dept_filter)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # Display employees
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    if employees:
+        df_employees = pd.DataFrame(employees, columns=['ID', 'Name', 'Email', 'Phone', 'Department', 'Position', 'Salary', 'Address', 'Join Date', 'Created At'])
+        
+        # Add action buttons
+        st.dataframe(df_employees, use_container_width=True)
+        
+        # Select employee for action
+        employee_ids = [emp[0] for emp in employees]
+        selected_id = st.selectbox("Select employee for action", employee_ids)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("View Details"):
+                employee = db.get_employee_by_id(selected_id)
+                if employee:
+                    st.session_state.view_employee = employee
+                    st.session_state.page = "Employee Details"
+        
+        with col2:
+            if st.button("Delete Employee"):
+                if db.delete_employee(selected_id):
+                    st.success(f"Employee with ID {selected_id} deleted successfully!")
+                else:
+                    st.error("Failed to delete employee.")
+    else:
+        st.info("No employees found matching your criteria.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# Add employee page
+def add_employee_page():
+    st.markdown("<h1 class='dashboard-title'>Add New Employee</h1>", unsafe_allow_html=True)
+    
+    st.markdown("<div class='form-container'>", unsafe_allow_html=True)
+    with st.form("add_employee_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            name = st.text_input("Full Name*")
+            email = st.text_input("Email Address*")
+            phone = st.text_input("Phone Number*")
+            
+        with col2:
+            departments = db.get_departments()
+            if not departments:
+                departments = ["HR", "IT", "Finance", "Marketing", "Operations"]
+            department = st.selectbox("Department*", departments)
+            position = st.text_input("Position/Title*")
+            salary = st.number_input("Salary (USD)*", min_value=0.0, step=1000.0)
+        
+        address = st.text_area("Address")
+        join_date = st.date_input("Join Date", datetime.now())
+        
+        submitted = st.form_submit_button("Add Employee")
+        
+        if submitted:
+            if not (name and email and phone and department and position and salary > 0):
+                st.error("Please fill all required fields marked with *")
+            else:
+                employee = Employee(
+                    name=name,
+                    email=email,
+                    phone=phone,
+                    department=department,
+                    position=position,
+                    salary=salary,
+                    address=address,
+                    join_date=join_date.strftime("%Y-%m-%d")
+                )
+                
+                if db.add_employee(employee):
+                    st.success(f"Employee {name} added successfully!")
+                    # Clear form
+                    st.rerun()
+                else:
+                    st.error("Failed to add employee. Please try again.")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# Update employee page
+def update_employee_page():
+    st.markdown("<h1 class='dashboard-title'>Update Employee Information</h1>", unsafe_allow_html=True)
+    
+    # Select employee to update
+    employees = db.get_all_employees()
+    if not employees:
+        st.info("No employees found in the database.")
+        return
+    
+    employee_options = {f"{emp[1]} (ID: {emp[0]})": emp[0] for emp in employees}
+    selected_employee = st.selectbox("Select Employee to Update", list(employee_options.keys()))
+    selected_id = employee_options[selected_employee]
+    
+    # Get current employee data
+    employee = db.get_employee_by_id(selected_id)
+    if not employee:
+        st.error("Failed to retrieve employee data.")
+        return
+    
+    st.markdown("<div class='form-container'>", unsafe_allow_html=True)
+    with st.form("update_employee_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            name = st.text_input("Full Name*", value=employee[1])
+            email = st.text_input("Email Address*", value=employee[2])
+            phone = st.text_input("Phone Number*", value=employee[3])
+            
+        with col2:
+            departments = db.get_departments()
+            if not departments:
+                departments = ["HR", "IT", "Finance", "Marketing", "Operations"]
+            department = st.selectbox("Department*", departments, index=departments.index(employee[4]) if employee[4] in departments else 0)
+            position = st.text_input("Position/Title*", value=employee[5])
+            salary = st.number_input("Salary (USD)*", min_value=0.0, step=1000.0, value=float(employee[6]))
+        
+        address = st.text_area("Address", value=employee[7] if employee[7] else "")
+        join_date = st.date_input("Join Date", datetime.strptime(employee[8], "%Y-%m-%d") if employee[8] else datetime.now())
+        
+        submitted = st.form_submit_button("Update Employee")
+        
+        if submitted:
+            if not (name and email and phone and department and position and salary > 0):
+                st.error("Please fill all required fields marked with *")
+            else:
+                updated_employee = Employee(
+                    id=selected_id,
+                    name=name,
+                    email=email,
+                    phone=phone,
+                    department=department,
+                    position=position,
+                    salary=salary,
+                    address=address,
+                    join_date=join_date.strftime("%Y-%m-%d")
+                )
+                
+                if db.update_employee(updated_employee):
+                    st.success(f"Employee {name} updated successfully!")
+                else:
+                    st.error("Failed to update employee. Please try again.")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# Reports page
+def reports_page():
+    st.markdown("<h1 class='dashboard-title'>Reports & Analytics</h1>", unsafe_allow_html=True)
+    
+    # Report types
+    report_type = st.selectbox(
+        "Select Report Type",
+        ["Department Summary", "Salary Analysis", "Employee Tenure", "Custom Report"]
+    )
+    
+    if report_type == "Department Summary":
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("Department Summary Report")
+        
+        dept_data = db.get_department_summary()
+        if dept_data:
+            df_dept = pd.DataFrame(dept_data, columns=['Department', 'Employee Count', 'Average Salary', 'Total Salary'])
+            st.dataframe(df_dept, use_container_width=True)
+            
+            # Visualization
+            fig = px.bar(df_dept, x='Department', y=['Employee Count', 'Average Salary'], barmode='group')
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Export option
+            if st.button("Export to Excel"):
+                df_dept.to_excel("department_summary.xlsx", index=False)
+                st.success("Report exported to department_summary.xlsx")
+        else:
+            st.info("No department data available yet.")
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    elif report_type == "Salary Analysis":
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("Salary Distribution Analysis")
+        
+        salary_data = db.get_salary_data()
+        if salary_data:
+            df_salary = pd.DataFrame(salary_data, columns=['Name', 'Salary', 'Department'])
+            
+            # Salary statistics
+            st.write("Salary Statistics:")
+            stats = {
+                "Minimum Salary": f"${df_salary['Salary'].min():,.2f}",
+                "Maximum Salary": f"${df_salary['Salary'].max():,.2f}",
+                "Average Salary": f"${df_salary['Salary'].mean():,.2f}",
+                "Median Salary": f"${df_salary['Salary'].median():,.2f}"
+            }
+            
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Minimum", stats["Minimum Salary"])
+            col2.metric("Maximum", stats["Maximum Salary"])
+            col3.metric("Average", stats["Average Salary"])
+            col4.metric("Median", stats["Median Salary"])
+            
+            # Salary distribution chart
+            st.write("Salary Distribution:")
+            fig = px.histogram(df_salary, x='Salary', nbins=10, color='Department')
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Salary by department
+            st.write("Average Salary by Department:")
+            dept_salary = df_salary.groupby('Department')['Salary'].mean().reset_index()
+            fig = px.bar(dept_salary, x='Department', y='Salary', color='Department')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No salary data available yet.")
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    elif report_type == "Employee Tenure":
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("Employee Tenure Analysis")
+        
+        tenure_data = db.get_employee_tenure()
+        if tenure_data:
+            df_tenure = pd.DataFrame(tenure_data, columns=['Name', 'Department', 'Join Date', 'Tenure (Days)'])
+            st.dataframe(df_tenure, use_container_width=True)
+            
+            # Tenure visualization
+            fig = px.scatter(df_tenure, x='Join Date', y='Department', color='Tenure (Days)', size='Tenure (Days)',
+                           hover_name='Name', title='Employee Tenure by Department')
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Average tenure by department
+            avg_tenure = df_tenure.groupby('Department')['Tenure (Days)'].mean().reset_index()
+            avg_tenure['Tenure (Days)'] = avg_tenure['Tenure (Days)'].round(0)
+            fig = px.bar(avg_tenure, x='Department', y='Tenure (Days)', color='Department',
+                       title='Average Tenure by Department (Days)')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No tenure data available yet.")
+        st.markdown("</div>", unsafe_allow_html=True)
+    
+    elif report_type == "Custom Report":
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        st.subheader("Custom Report Generator")
+        
+        # Select fields
+        st.write("Select fields to include in the report:")
+        include_id = st.checkbox("Employee ID", value=True)
+        include_name = st.checkbox("Name", value=True)
+        include_email = st.checkbox("Email", value=True)
+        include_phone = st.checkbox("Phone", value=False)
+        include_dept = st.checkbox("Department", value=True)
+        include_position = st.checkbox("Position", value=True)
+        include_salary = st.checkbox("Salary", value=True)
+        include_join_date = st.checkbox("Join Date", value=True)
+        include_address = st.checkbox("Address", value=False)
+        
+        # Filter options
+        st.write("Filter options:")
+        departments = db.get_departments()
+        dept_filter = st.multiselect("Departments", departments)
+        
+        min_salary = st.number_input("Minimum Salary", min_value=0.0, step=1000.0)
+        max_salary = st.number_input("Maximum Salary", min_value=0.0, step=1000.0, value=1000000.0)
+        
+        # Generate report
+        if st.button("Generate Report"):
+            # Build field list
+            fields = []
+            if include_id: fields.append("id")
+            if include_name: fields.append("name")
+            if include_email: fields.append("email")
+            if include_phone: fields.append("phone")
+            if include_dept: fields.append("department")
+            if include_position: fields.append("position")
+            if include_salary: fields.append("salary")
+            if include_join_date: fields.append("join_date")
+            if include_address: fields.append("address")
+            
+            # Get custom report data
+            report_data = db.generate_custom_report(fields, dept_filter, min_salary, max_salary)
+            
+            if report_data:
+                df_report = pd.DataFrame(report_data, columns=[f.capitalize() for f in fields])
+                st.dataframe(df_report, use_container_width=True)
+                
+                # Export options
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("Export to Excel"):
+                        df_report.to_excel("custom_report.xlsx", index=False)
+                        st.success("Report exported to custom_report.xlsx")
+                
+                with col2:
+                    if st.button("Export to CSV"):
+                        df_report.to_csv("custom_report.csv", index=False)
+                        st.success("Report exported to custom_report.csv")
+            else:
+                st.info("No data found matching your criteria.")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# Main app
+def main():
+    # Create assets directory if it doesn't exist
+    if not os.path.exists("assets"):
+        os.makedirs("assets")
+    
+    # Initialize session state
+    if 'page' not in st.session_state:
+        st.session_state.page = "Dashboard"
+    
+    # Get selected page from sidebar
+    selected = sidebar()
+    
+    # Display selected page
+    if selected == "Dashboard":
+        dashboard()
+    elif selected == "Employees":
+        employees_page()
+    elif selected == "Add Employee":
+        add_employee_page()
+    elif selected == "Update Employee":
+        update_employee_page()
+    elif selected == "Reports":
+        reports_page()
+
+if __name__ == "__main__":
+    main()
