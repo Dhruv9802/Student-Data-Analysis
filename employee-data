@@ -1,0 +1,48 @@
+class Employee:
+    """Employee class to represent an employee in the system"""
+    
+    def __init__(self, name="", email="", phone="", department="", position="", 
+                 salary=0.0, address="", join_date="", id=None):
+        """Initialize an Employee object with provided attributes"""
+        self.id = id
+        self.name = name
+        self.email = email
+        self.phone = phone
+        self.department = department
+        self.position = position
+        self.salary = salary
+        self.address = address
+        self.join_date = join_date
+    
+    def __str__(self):
+        """String representation of the Employee object"""
+        return f"{self.name} - {self.position} ({self.department})"
+    
+    def to_dict(self):
+        """Convert Employee object to dictionary"""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "email": self.email,
+            "phone": self.phone,
+            "department": self.department,
+            "position": self.position,
+            "salary": self.salary,
+            "address": self.address,
+            "join_date": self.join_date
+        }
+    
+    @classmethod
+    def from_dict(cls, data):
+        """Create Employee object from dictionary"""
+        return cls(
+            id=data.get("id"),
+            name=data.get("name", ""),
+            email=data.get("email", ""),
+            phone=data.get("phone", ""),
+            department=data.get("department", ""),
+            position=data.get("position", ""),
+            salary=data.get("salary", 0.0),
+            address=data.get("address", ""),
+            join_date=data.get("join_date", "")
+        )
