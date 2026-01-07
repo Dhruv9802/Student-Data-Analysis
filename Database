@@ -1,0 +1,293 @@
+import sqlite3
+import os
+from datetime import datetime
+from employee import Employee
+
+class Database:
+    def __init__(self, db_name="employee_management.db"):
+        """Initialize database connection and create tables if they don't exist"""
+        self.db_name = db_name
+        self.conn = None
+        self.cursor = None
+        self.connect()
+        self.create_tables()
+    
+    def connect(self):
+        """Connect to the SQLite database"""
+        try:
+            self.conn = sqlite3.connect(self.db_name)
+            self.conn.row_factory = sqlite3.Row
+            self.cursor = self.conn.cursor()
+            return True
+        except sqlite3.Error as e:
+            print(f"Database connection error: {e}")
+            return False
+    
+    def create_tables(self):
+        """Create necessary tables if they don't exist"""
+        try:
+            # Employees table
+            self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS employees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                phone TEXT,
+                department TEXT,
+                position TEXT,
+                salary REAL,
+                address TEXT,
+                join_date TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
+            # Departments table for future expansion
+            self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS departments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+            
+            # Insert default departments if they don't exist
+            default_departments = ["HR", "IT", "Finance", "Marketing", "Operations"]
+            for dept in default_departments:
+                self.cursor.execute(
+                    "INSERT OR IGNORE INTO departments (name) VALUES (?)",
+                    (dept,)
+                )
+            
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Table creation error: {e}")
+            return False
+    
+    def close(self):
+        """Close the database connection"""
+        if self.conn:
+            self.conn.close()
+    
+    def add_employee(self, employee):
+        """Add a new employee to the database"""
+        try:
+            self.cursor.execute('''
+            INSERT INTO employees (name, email, phone, department, position, salary, address, join_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                employee.name,
+                employee.email,
+                employee.phone,
+                employee.department,
+                employee.position,
+                employee.salary,
+                employee.address,
+                employee.join_date
+            ))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Error adding employee: {e}")
+            return False
+    
+    def update_employee(self, employee):
+        """Update an existing employee's information"""
+        try:
+            self.cursor.execute('''
+            UPDATE employees
+            SET name = ?, email = ?, phone = ?, department = ?, position = ?, 
+                salary = ?, address = ?, join_date = ?
+            WHERE id = ?
+            ''', (
+                employee.name,
+                employee.email,
+                employee.phone,
+                employee.department,
+                employee.position,
+                employee.salary,
+                employee.address,
+                employee.join_date,
+                employee.id
+            ))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Error updating employee: {e}")
+            return False
+    
+    def delete_employee(self, employee_id):
+        """Delete an employee from the database"""
+        try:
+            self.cursor.execute("DELETE FROM employees WHERE id = ?", (employee_id,))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Error deleting employee: {e}")
+            return False
+    
+    def get_employee_by_id(self, employee_id):
+        """Get employee details by ID"""
+        try:
+            self.cursor.execute("SELECT * FROM employees WHERE id = ?", (employee_id,))
+            return self.cursor.fetchone()
+        except sqlite3.Error as e:
+            print(f"Error getting employee: {e}")
+            return None
+    
+    def get_all_employees(self):
+        """Get all employees from the database"""
+        try:
+            self.cursor.execute("SELECT * FROM employees ORDER BY name")
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error getting employees: {e}")
+            return []
+    
+    def search_employees(self, search_term="", department=None):
+        """Search employees by name, email, or department"""
+        try:
+            if department and department != "All":
+                self.cursor.execute('''
+                SELECT * FROM employees 
+                WHERE (name LIKE ? OR email LIKE ?) AND department = ?
+                ORDER BY name
+                ''', (f"%{search_term}%", f"%{search_term}%", department))
+            else:
+                self.cursor.execute('''
+                SELECT * FROM employees 
+                WHERE name LIKE ? OR email LIKE ?
+                ORDER BY name
+                ''', (f"%{search_term}%", f"%{search_term}%"))
+            
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error searching employees: {e}")
+            return []
+    
+    def get_employee_count(self):
+        """Get total number of employees"""
+        try:
+            self.cursor.execute("SELECT COUNT(*) FROM employees")
+            return self.cursor.fetchone()[0]
+        except sqlite3.Error as e:
+            print(f"Error getting employee count: {e}")
+            return 0
+    
+    def get_departments(self):
+        """Get list of all departments"""
+        try:
+            self.cursor.execute("SELECT name FROM departments ORDER BY name")
+            departments = self.cursor.fetchall()
+            return [dept[0] for dept in departments]
+        except sqlite3.Error as e:
+            print(f"Error getting departments: {e}")
+            return []
+    
+    def get_average_salary(self):
+        """Get average salary of all employees"""
+        try:
+            self.cursor.execute("SELECT AVG(salary) FROM employees")
+            avg_salary = self.cursor.fetchone()[0]
+            return avg_salary if avg_salary else 0
+        except sqlite3.Error as e:
+            print(f"Error getting average salary: {e}")
+            return 0
+    
+    def get_department_distribution(self):
+        """Get employee count by department for charts"""
+        try:
+            self.cursor.execute('''
+            SELECT department, COUNT(*) as count
+            FROM employees
+            GROUP BY department
+            ORDER BY count DESC
+            ''')
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error getting department distribution: {e}")
+            return []
+    
+    def get_salary_data(self):
+        """Get salary data for visualization"""
+        try:
+            self.cursor.execute('''
+            SELECT name, salary, department
+            FROM employees
+            ORDER BY department, salary DESC
+            ''')
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error getting salary data: {e}")
+            return []
+    
+    def get_recent_employees(self, limit=5):
+        """Get recently added employees"""
+        try:
+            self.cursor.execute('''
+            SELECT id, name, email, department, position, join_date
+            FROM employees
+            ORDER BY created_at DESC
+            LIMIT ?
+            ''', (limit,))
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error getting recent employees: {e}")
+            return []
+    
+    def get_department_summary(self):
+        """Get department summary for reports"""
+        try:
+            self.cursor.execute('''
+            SELECT department, 
+                   COUNT(*) as employee_count, 
+                   AVG(salary) as avg_salary,
+                   SUM(salary) as total_salary
+            FROM employees
+            GROUP BY department
+            ORDER BY department
+            ''')
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error getting department summary: {e}")
+            return []
+    
+    def get_employee_tenure(self):
+        """Calculate employee tenure in days"""
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            self.cursor.execute('''
+            SELECT name, department, join_date,
+                   JULIANDAY(?) - JULIANDAY(join_date) as tenure_days
+            FROM employees
+            ORDER BY tenure_days DESC
+            ''', (today,))
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error getting employee tenure: {e}")
+            return []
+    
+    def generate_custom_report(self, fields, departments=None, min_salary=0, max_salary=1000000):
+        """Generate custom report based on selected fields and filters"""
+        try:
+            # Build query
+            query = f"SELECT {', '.join(fields)} FROM employees WHERE 1=1"
+            params = []
+            
+            # Add filters
+            if departments and len(departments) > 0:
+                placeholders = ', '.join(['?' for _ in departments])
+                query += f" AND department IN ({placeholders})"
+                params.extend(departments)
+            
+            query += " AND salary >= ? AND salary <= ?"
+            params.extend([min_salary, max_salary])
+            
+            # Execute query
+            self.cursor.execute(query, params)
+            return self.cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error generating custom report: {e}")
+            return []
